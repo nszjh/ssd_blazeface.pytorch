@@ -155,48 +155,43 @@ class BlazeFace(nn.Module):
         super(BlazeFace, self).__init__()
 
         self.firstconv = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(24),
+            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
 
         self.blazeBlock = nn.Sequential(
-            BlazeBlock(in_channels=24, out_channels=24),
-            BlazeBlock(in_channels=24, out_channels=24),
-            BlazeBlock(in_channels=24, out_channels=48, stride=2),
-            BlazeBlock(in_channels=48, out_channels=48),
-            BlazeBlock(in_channels=48, out_channels=48),
+            BlazeBlock(in_channels=16, out_channels=16),
+            # BlazeBlock(in_channels=24, out_channels=24),
+            BlazeBlock(in_channels=16, out_channels=32, stride=2),
+            # BlazeBlock(in_channels=48, out_channels=48),
+            BlazeBlock(in_channels=32, out_channels=32),
         )
 
         self.doubleBlazeBlock = nn.Sequential(
-            DoubleBlazeBlock(in_channels=48, out_channels=96, mid_channels=24, stride=2),
-            DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24),
-            DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24),
+            DoubleBlazeBlock(in_channels=32, out_channels=64, mid_channels=16, stride=2),
+            # DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24),
+            DoubleBlazeBlock(in_channels=64, out_channels=64, mid_channels=16),
         )
 
-        self.doubleBlazeBlock2 = nn.Sequential(
-            DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24, stride=2),
-            DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24),
-            DoubleBlazeBlock(in_channels=96, out_channels=96, mid_channels=24),
-        )
 
         self.conv2d_8x8_classificators = nn.Sequential(
-            nn.Conv2d(in_channels=96, out_channels=6, kernel_size=1, stride=1),
+            nn.Conv2d(in_channels=64, out_channels=6, kernel_size=1, stride=1),
             nn.BatchNorm2d(6),
         )
 
         self.conv2d_16x16_classificators = nn.Sequential(
-            nn.Conv2d(in_channels=96, out_channels=2, kernel_size=1, stride=1),
+            nn.Conv2d(in_channels=64, out_channels=2, kernel_size=1, stride=1),
             nn.BatchNorm2d(2),
         )
 
         self.conv2d_8x8_regressors = nn.Sequential(
-            nn.Conv2d(in_channels=96, out_channels=96, kernel_size=1, stride=1),
-            nn.BatchNorm2d(96),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=1, stride=1),
+            nn.BatchNorm2d(64),
         )
 
         self.conv2d_16x16_regressors = nn.Sequential(
-            nn.Conv2d(in_channels=96, out_channels=32, kernel_size=1, stride=1),
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=1, stride=1),
             nn.BatchNorm2d(32),
         )
 
@@ -231,14 +226,13 @@ class BlazeFace(nn.Module):
         x = self.firstconv(x)
         x = self.blazeBlock(x)
         y1 = self.doubleBlazeBlock(x)
-        y2 = self.doubleBlazeBlock2(y1)
 
         # print ("y1:", y1.shape)
         batch = y1.size(0)
         # print (self.conv2d_16x16_classificators(y1).view( 512, 1).shape)
         # classificators = torch.cat([self.conv2d_16x16_classificators(y1).view( 512, 1), self.conv2d_8x8_classificators(y2).view( 384, 1)])
-        output = torch.cat([self.conv2d_16x16_regressors(y1).view(batch, 512, 16), self.conv2d_8x8_regressors(y2).view(batch, 384, 16)], 1)
-        
+        output = self.conv2d_16x16_regressors(y1).view(batch,  512, 16)
+        # print ("output:", output.shape)
         # output = load_mnn_output()
 
         if self.phase == "test":

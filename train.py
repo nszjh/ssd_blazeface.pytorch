@@ -1,4 +1,4 @@
-from data.celeba import *
+from data.nvPrivate import *
 # from utils.augmentations import SSDAugmentation
 from layers.modules.multibox_loss_blaze import BlazeMultiBoxLoss
 # from ssd import build_ssd
@@ -26,9 +26,9 @@ def str2bool(v):
 parser = argparse.ArgumentParser(
     description='Single Shot MultiBox Detector Training With Pytorch')
 train_set = parser.add_mutually_exclusive_group()
-parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'CELEBA'],
+parser.add_argument('--dataset', default='VOC', choices=['VOC', 'COCO', 'CELEBA', 'NVP3D'],
                     type=str, help='VOC or COCO or CELEBA')
-parser.add_argument('--dataset_root', default=CELEBA_ROOT,
+parser.add_argument('--dataset_root', default=NVP_ROOT,
                     help='Dataset root directory path')
 parser.add_argument('--basenet', default='vgg16_reducedfc.pth',
                     help='Pretrained base model')
@@ -96,6 +96,12 @@ def train():
         #     parser.error('Must specify dataset if specifying dataset_root')
         cfg = celeba
         dataset = CelebaDetection(root=args.dataset_root)
+    
+    elif args.dataset == 'NVP3D':
+        # if args.dataset_root == CELEBA_ROOT:
+        #     parser.error('Must specify dataset if specifying dataset_root')
+        cfg = celeba
+        dataset = NvpDetection(root=args.dataset_root)
 
     if args.visdom:
         import visdom
@@ -158,102 +164,111 @@ def train():
                                   shuffle=True,
                                   pin_memory=True)
     # create batch iterator
-    batch_iterator = iter(data_loader)
 
-    with_landmark = ""
-    save_count = 0
-    for iteration in range(args.start_iter, cfg['max_iter']):
-        if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
-            update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
-                            'append', epoch_size)
-            # reset epoch loss counters
-            loc_loss = 0
-            conf_loss = 0
-            epoch += 1
+    while (1):
 
-        if iteration in cfg['lr_steps']:
-            step_index += 1
-            adjust_learning_rate(optimizer, args.gamma, step_index)
+        batch_iterator = iter(data_loader)
 
-        # load train data
-        images, targets = next(batch_iterator)
-        # print ("dataset: ", images.shape, targets.shape)
-        
-        zmask = targets[:, :, 10] == 0
-        if torch.sum(zmask).data > 0:
-            continue
+        with_landmark = ""
+        save_count = 0
+        iter_count = 0
+        for iteration in range(args.start_iter, cfg['max_iter']):
+            if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
+                update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
+                                'append', epoch_size)
+                # reset epoch loss counters
+                loc_loss = 0
+                conf_loss = 0
+                epoch += 1
 
-        # print ("zmask", torch.sum(zmask))
+            if iteration in cfg['lr_steps']:
+                step_index += 1
+                adjust_learning_rate(optimizer, args.gamma, step_index)
 
-        if args.cuda:
-            images = Variable(images.cuda())
-            # targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
-            targets = Variable(targets.cuda())
-        else:
-            images = Variable(images)     
-            # targets = [Variable(ann, volatile=True) for ann in targets]
-            targets = Variable(targets.cuda())
+            # load train data
+            try:
+                images, targets = next(batch_iterator)
+            except StopIteration:
+                iter_count = iter_count + 1
+                print ("new iteration ", str(iter_count))
+                break
+            # print ("dataset: ", images.shape, targets.shape)
+            
+            zmask = targets[:, :, 10] == 0
+            if torch.sum(zmask).data > 0:
+                continue
 
-        # forward
-        t0 = time.time()
-        out1  = net(images)
-        out2 = out1[:, :, 10:12]
-        priors = blaze_net.getPriors()
+            # print ("zmask", torch.sum(zmask))
 
-        # print ("output: ")
-        # print (out1.shape)
-        # print (out2.shape)
-        # print (priors.shape)
-        # backprop
-        optimizer.zero_grad()
-        loss_l, loss_c, loss_land = criterion((out1, out2, priors), targets)
+            if args.cuda:
+                images = Variable(images.cuda())
+                # targets = [Variable(ann.cuda(), volatile=True) for ann in targets]
+                targets = Variable(targets.cuda())
+            else:
+                images = Variable(images)     
+                # targets = [Variable(ann, volatile=True) for ann in targets]
+                targets = Variable(targets.cuda())
 
-        # print ("loss_l:", loss_l.shape)
-        # print ("loss_c:", loss_c.shape)
+            # forward
+            t0 = time.time()
+            out1  = net(images)
+            out2 = out1[:, :, 10:12]
+            priors = blaze_net.getPriors()
 
-        loss = loss_l + loss_c  # + loss_land
-        loss_with_land = loss_land
-        
-        if (len(loss_with_land.data) > 0):
-            with_landmark = "with_land_"
-        
-        # loss = loss.view(-1, 1)
-        # loss_with_land = loss_with_land.view(-1, 1)
-        # print ("loss:", loss, loss.shape)
-        # print ("loss_with_land: ", loss_with_land.shape)
+            # print ("output: ")
+            # print (out1.shape)
+            # print (out2.shape)
+            # print (priors.shape)
+            # backprop
+            optimizer.zero_grad()
+            loss_l, loss_c, loss_land = criterion((out1, out2, priors), targets)
 
-        loss = torch.cat([loss, loss_with_land], 1)
-        # print ("loss:", loss, loss.shape)
-        # loss = 0.1 * loss.mean()  + loss_with_land.mean()
-        # loss = 0.8 * loss  + loss_with_land
-        # loss.backward(torch.FloatTensor([loss.size(0), loss.size(1)]))
-        loss.sum().backward()
-        # loss_with_land.backward()
+            # print ("loss_l:", loss_l.shape)
+            # print ("loss_c:", loss_c.shape)
 
-        optimizer.step()
-        t1 = time.time()
-        # print ("loss_l", loss_l.shape)
-        loc_loss += loss_l.data[0]  #loss
-        # conf_loss += loss_c.data[0] #loss
+            loss = loss_l + loss_c  # + loss_land
+            loss_with_land = loss_land
+            # print (loss_with_land)
+            # if (len(loss_with_land.data) > 0):
+            #     with_landmark = "with_land_"
+            
+            # loss = loss.view(-1, 1)
+            # loss_with_land = loss_with_land.view(-1, 1)
+            # print ("loss:", loss, loss.shape)
+            # print ("loss_with_land: ", loss_with_land.shape)
+
+            # loss = torch.cat([loss, loss_with_land], 1)
+            # print ("loss:", loss, loss.shape)
+            # loss = 0.1 * loss.mean()  + loss_with_land.mean()
+            # loss = 0.8 * loss  + loss_with_land
+            # loss.backward(torch.FloatTensor([loss.size(0), loss.size(1)]))
+            loss.sum().backward()
+            # loss_with_land.backward()
+
+            optimizer.step()
+            t1 = time.time()
+            # print ("loss_l", loss_l.shape)
+            loc_loss += loss_l.data[0]  #loss
+            # conf_loss += loss_c.data[0] #loss
 
 
-        if iteration % 10 == 0:
-            print('timer: %.4f sec.' % (t1 - t0))
-            # print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]))
-            print('iter ' + repr(iteration) + ' || Loss: %.6f ||' % (loss.sum().data)) 
+            if iteration % 10 == 0:
+                print('timer: %.4f sec.' % (t1 - t0))
+                # print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]))
+                print('iter ' + repr(iteration) + ' || Loss: %.6f ||' % (loss.sum().data)) 
 
-        if args.visdom:
-            update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
-                            iter_plot, epoch_plot, 'append')
+            if args.visdom:
+                update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
+                                iter_plot, epoch_plot, 'append')
 
-        if iteration != 0 and iteration / 5000 > save_count:
-            save_count += 1
-            print('Saving state, iter:', iteration)
-            torch.save(blaze_net.state_dict(), 'weights/blaze_face_' + with_landmark + 
-                       repr(iteration) + "_loss_" + str(float(loss.sum().data)) + '.pth')
+            if iteration != 0 and iteration / 5000 > save_count:
+                save_count += 1
+                print('Saving state, iter:', iteration)
+                torch.save(blaze_net.state_dict(), 'weights/blaze_face_' + with_landmark + 
+                        repr(iteration) + "_loss_" + str(float(loss.sum().data)) + '.pth')
 
-    torch.save(blaze_net.state_dict(),
-               args.save_folder + '' + args.dataset + '.pth')
+        torch.save(blaze_net.state_dict(),
+                args.save_folder + '' + args.dataset + '.pth')
 
 
 

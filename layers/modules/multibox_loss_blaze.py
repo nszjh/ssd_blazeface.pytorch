@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from data.config import celeba as cfg
 from ..box_utils import match, match1, log_sum_exp
 
-UseLandmark = 1
+UseLandmark = 0
 
 class BlazeMultiBoxLoss(nn.Module):
     """SSD Weighted Loss Function
@@ -66,15 +66,20 @@ class BlazeMultiBoxLoss(nn.Module):
         num_priors = (priors.size(0))
         num_classes = self.num_classes
 
-        # print ("loc_data", loc_data, loc_data.shape)
-        # print ("conf_data", conf_data, conf_data.shape)
-        # print ("targets", targets, targets.shape)
+
+        # print ("loc_data", loc_data.shape)
+        # print ("conf_data",  conf_data.shape)
+        # print ("targets",  targets.shape)
 
         # match priors (default boxes) and ground truth boxes
         loc_t = torch.Tensor(num, num_priors, 4)
         conf_t = torch.LongTensor(num, num_priors)
 
-        label_test = torch.zeros(num, 1, 1)
+        # print ("num_priors",  num_priors.shape)
+        # print ("loc_t",  loc_t.shape)
+        # print ("conf_t",  conf_t.shape)
+
+        label_test = torch.ones(num, 1,  1)
 
         label_test[:, 0, :] = 0
 
@@ -117,7 +122,8 @@ class BlazeMultiBoxLoss(nn.Module):
         num_pos = pos.sum(dim=1, keepdim=True)
 
         # print ("loc_t:", loc_t.shape)
-        # print ("conf_t:", conf_t.shape)
+        print ("conf_t:", conf_t, conf_t.shape)
+        print ("pos:", pos, pos.shape)
         # print ("landmark_t", landmark_t.shape)
         # Localization Loss (Smooth L1)
         # Shape: [batch,num_priors,4]
@@ -174,7 +180,7 @@ class BlazeMultiBoxLoss(nn.Module):
         conf_p = conf_data[(pos_idx+neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos+neg).gt(0)]
         # print (conf_p, conf_p.shape)
-        # print (targets_weighted, targets_weighted.shape)
+        # print ("targets_weighted:" , targets_weighted, targets_weighted.shape)
 
         loss_c_fn = torch.nn.CrossEntropyLoss()
         loss_c = F.cross_entropy(conf_p, targets_weighted)

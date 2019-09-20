@@ -21,6 +21,7 @@ class PriorBox(object):
         self.aspect_ratios = cfg['aspect_ratios']
         self.clip = cfg['clip']
         self.version = cfg['name']
+
         for v in self.variance:
             if v <= 0:
                 raise ValueError('Variances must be greater than 0')
@@ -63,8 +64,8 @@ class PriorBox(object):
 
                 print ("prior_box:", i, j, f, cx, cy, f_k, s_k)
 
-                mean += [cx, cy, s_k, s_k]
-                mean += [cx, cy, s_k * 2, s_k * 2]
+                mean += [cx, cy, s_k * 2, s_k * 4] 
+                mean += [cx, cy, s_k * 4, s_k * 6]
                 # rest of aspect ratios, 
                 for ar in self.aspect_ratios[k]:
                     if self.version == "CELEBA": # for celeba, we change ratios to 1:1
@@ -82,7 +83,7 @@ class PriorBox(object):
         return output
 
 
-from config import voc, coco, celeba
+from .config import voc, coco, celeba
 
 if __name__ == "__main__":
     cfg = celeba

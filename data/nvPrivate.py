@@ -1,6 +1,6 @@
-"""CELEBA  Dataset 
 """
-from   .config import HOME
+NV private  Dataset 
+"""
 import os.path as osp
 import sys
 import torch
@@ -11,20 +11,12 @@ import numpy as np
 
 
 
-VOC_CLASSES = (  # always index 0
-    'aeroplane', 'bicycle', 'bird', 'boat',
-    'bottle', 'bus', 'car', 'cat', 'chair',
-    'cow', 'diningtable', 'dog', 'horse',
-    'motorbike', 'person', 'pottedplant',
-    'sheep', 'sofa', 'train', 'tvmonitor')
-
 # note: if you used our download scripts, this should be right
-# CELEBA_ROOT = osp.join(HOME, "/media/nv/7174c323-375e-4334-b15e-019bd2c8af08/celeba_align/")
-CELEBA_ROOT = osp.join(HOME, "X:/7174c323-375e-4334-b15e-019bd2c8af08/celeba_align/")
+NVP_ROOT =  "X:/"
 
 USE_PRE_DETECT = 0
 
-class CelebaAnnotationTransform(object):
+class NvpAnnotationTransform(object):
     """Transforms a VOC annotation into a Tensor of bbox coords and label index
     Initilized with a dictionary lookup of classnames to indexes
 
@@ -37,9 +29,7 @@ class CelebaAnnotationTransform(object):
         width (int): width
     """
 
-    def __init__(self, class_to_ind=None, keep_difficult=False):
-        self.class_to_ind = class_to_ind or dict(
-            zip(VOC_CLASSES, range(len(VOC_CLASSES))))
+    def __init__(self, keep_difficult=False):
         self.keep_difficult = keep_difficult
 
     def __call__(self, target):
@@ -53,19 +43,17 @@ class CelebaAnnotationTransform(object):
         i = 0
         while i < target.size:
             if i >= 10:
-                break
-
-            if (i % 2) == 0:
-                target[0, i] = int(target[0, i] * 128 / 178)
-            else:
-                target[0, i] = int(target[0, i] * 128 / 218)
+                if (i % 2) == 0:
+                    target[0, i] = int(target[0, i] * 128 / 320)
+                else:
+                    target[0, i] = int(target[0, i] * 128 / 240)
             i = i + 1
 
         # print (target)
         return target  # [[xmin, ymin, xmax, ymax, label_ind], ... ]
 
 
-class CelebaDetection(data.Dataset):
+class NvpDetection(data.Dataset):
     """VOC Detection Dataset Object
 
     input is image, target is annotation
@@ -84,32 +72,31 @@ class CelebaDetection(data.Dataset):
 
     def __init__(self, root,
                 #  image_sets=[('2007', 'trainval'), ('2012', 'trainval')],
-                 transform=None, target_transform=CelebaAnnotationTransform(),
-                 dataset_name='CELEBA'):
+                 transform=None, target_transform=NvpAnnotationTransform(),
+                 dataset_name='NVP3D'):
         self.root = root
         # self.image_set = image_sets
         self.transform = transform
         self.target_transform = target_transform
         self.name = dataset_name
 
-        landmark_file = osp.join(root, 'Anno', 'list_landmarks_align_celeba.txt')
-        list_bbox_celeba_file = osp.join(root, 'Anno', 'list_bbox_celeba_align.txt')
+        list_bbox_nvp_file = osp.join(root, '7174c323-375e-4334-b15e-019bd2c8af08', 'faceDataSet',  'facePosition.txt')
 
-        self.landmarks = np.loadtxt(landmark_file, skiprows=2, usecols=range(1, 11))
-        self.bbox      = np.loadtxt(list_bbox_celeba_file, skiprows=2, usecols=range(1, 5))
-
-        # self._imgpath = osp.join('%s', 'pre_img_align_celeba/celebA', '%s.jpg')
-        self.ids = list()
+        self.bbox  = np.loadtxt(list_bbox_nvp_file, skiprows=2, usecols=range(1, 5))
+        self.ids   = list()
         # for (year, name) in image_sets:
-        for line in open(osp.join(root, 'Anno', 'identity_CelebA.txt')):
+        i = 0
+        for line in open(osp.join(root, '7174c323-375e-4334-b15e-019bd2c8af08', 'faceDataSet',  'facePosition.txt')):
+            i = i+1
+            if i < 3:
+                continue
             self.ids.append(line.split(' ')[0])
 
-        if USE_PRE_DETECT == 1:
-            self.detector = 0 #dlib.get_frontal_face_detector()
-            self.totalLine = np.zeros([len(self.ids), 5])
+        print ("ids:" , len(self.ids))
 
-        else:
-            self.detector = 0
+        self.path = osp.join(self.root, '7174c323-375e-4334-b15e-019bd2c8af08', 'faceDataSet', 'faceData')
+
+        # self._imgpath = osp.join('%s', 'pre_img_align_celeba/celebA', '%s.jpg')
         
 
     def __getitem__(self, index):
@@ -125,72 +112,53 @@ class CelebaDetection(data.Dataset):
         return len(self.ids)
 
 
-    def save_pre_detect_label_file(self, totalLine):
-        np.savetxt("list_bbox_celeba_align.txt", totalLine, fmt="%d", delimiter=" ", newline="\n")
-
-
-
-    def pull_item_for_pre_detect(self, index):
-        img_id = self.ids[index]
-
-        landmark = np.array(self.landmarks[index, :])
-
-        img_path = osp.join(self.root, 'pre_img_align_celeba', 'celebA', img_id)
-        # print (img_path)
-        img = cv2.imread(img_path)
-        height, width, channels = img.shape
-
-        # print ("image id: " + str(index))
-        # print (img_id)
-
-        if self.detector:
-            faces = self.detector(img, 1)
-            line = np.zeros([1, 5])
-
-            if (len(faces)):
-                for i, d in enumerate(faces):
-                    self.totalLine[index, 0] = index + 1
-                    self.totalLine[index, 1] = d.left()
-                    self.totalLine[index, 2] = d.top()
-                    self.totalLine[index, 3] = d.right() - d.left()
-                    self.totalLine[index, 4] = d.bottom() - d.top()
-                    break
-            else:
-                self.totalLine[index, 0] = index + 1
-                
-                # self.totalLine = np.vstack((self.totalLine, line))
-            # print (self.totalLine)
-
-        return torch.from_numpy(img).permute(2, 0, 1), self.totalLine, height, width
-
-        # return torch.from_numpy(img), target, height, width
-
-    
+   
     def pull_item(self, index):
         img_id = self.ids[index]
-        landmark = np.array(self.landmarks[index, :])
         bbox = np.array(self.bbox[index, :])
-        landmark = np.reshape(landmark,  (1, 10))
         bbox = np.reshape(bbox, (1, 4))
+        landmark = np.ones([1, 10])
 
         # print (index)
         target = np.hstack((landmark, bbox))
 
-        img_path = osp.join(self.root, 'pre_img_align_celeba', 'celebA', img_id)
+        img_path = osp.join(self.path, img_id)        
+        depth_path = osp.join(self.path, img_id.split('.')[0] + ".npy")
+        # print ("path:", img_path, depth_path)
+        depth_data  = np.load(depth_path)
+        # depth_data  = np.ones([240, 320])
+        # depth_data  = np.loadtxt(depth_path)
+        # np.save(osp.join(path, img_id.split('.')[0]), depth_data) 
+        # # print (depth_data.shape, depth_data)
+        np_depth_data = np.array(depth_data[:])
+        np_depth_data = np.reshape(np_depth_data, (240, 320))
+        # print (np_depth_data.shape, np_depth_data)
+
         # print (img_path)
         img = cv2.imread(img_path)
         height, width, channels = img.shape
 
-        # print (img.shape)
+        # # print (img.shape)
         if self.target_transform is not None:
-            target = self.target_transform(target)
+            ########### 2d image ###########
             # img = img.transpose(0, 1).transpose(0, 2).contiguous().long().squeeze_()
             # img = img.transpose(2, 0, 1).long()
+            img = cv2.resize(img, (128, 128))
             img = img.astype(np.float32)
+            img = img / 255.0
+
+            ########### depth data ###########
+            np_depth_data = cv2.resize(np_depth_data, (128, 128))
+            # print (np_depth_data.shape, np_depth_data)
+            np_depth_data = np_depth_data * 7200
+            # np_depth_data = np_depth_data.astype(np.float32)
+            np_depth_data = np_depth_data / 65535
+            # print (np_depth_data)
+
+            ########### target ###########
+            target = self.target_transform(target)
             target = target.astype(np.float32)
-
             # print ("img_id:", img_id, ", target:", target)
-
             target = target / 128
             target[-1, 12] = target[-1, 10] + target[-1, 12]
             target[-1, 13] = target[-1, 11] + target[-1, 13]
@@ -204,6 +172,10 @@ class CelebaDetection(data.Dataset):
             # to rgb
             img = img[:, :, (2, 1, 0)]
             print ("transform finished")
+
+        # print (img.shape, np_depth_data)
+        img[:, :, 0] = np_depth_data
+        img[:, :, 1] = np_depth_data
 
         return torch.from_numpy(img).permute(2, 0, 1), target, height, width
         # return torch.from_numpy(img), target, height, width
@@ -255,7 +227,7 @@ class CelebaDetection(data.Dataset):
 
 if __name__  == "__main__":
 
-    dataset = CelebaDetection(CELEBA_ROOT)
+    dataset = NvpDetection(NVP_ROOT)
     data_loader = data.DataLoader(dataset, 1,
                                 num_workers = 1,
                                 shuffle=True,
@@ -263,8 +235,8 @@ if __name__  == "__main__":
 
     batch_iterator = iter(data_loader)
 
-    print (len(dataset.ids))
-    for i in range(len(dataset.ids)):
+    # print (len(dataset.ids))
+    for i in range(4890):
         # print (len(element))
         if (i % 100) == 0:
             print (i)        
