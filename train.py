@@ -164,7 +164,8 @@ def train():
                                   shuffle=True,
                                   pin_memory=True)
     # create batch iterator
-
+    iteration_count = 0
+    min_loss = 3.0
     while (1):
 
         batch_iterator = iter(data_loader)
@@ -181,7 +182,10 @@ def train():
                 conf_loss = 0
                 epoch += 1
 
-            if iteration in cfg['lr_steps']:
+            iteration_count += 1 
+
+            if iteration_count % 20000 == 0:
+                print ("ajust step...")
                 step_index += 1
                 adjust_learning_rate(optimizer, args.gamma, step_index)
 
@@ -194,9 +198,9 @@ def train():
                 break
             # print ("dataset: ", images.shape, targets.shape)
             
-            zmask = targets[:, :, 10] == 0
-            if torch.sum(zmask).data > 0:
-                continue
+            # zmask = targets[:, :, 10] == 0
+            # if torch.sum(zmask).data > 0:
+            #     continue
 
             # print ("zmask", torch.sum(zmask))
 
@@ -226,7 +230,7 @@ def train():
             # print ("loss_l:", loss_l.shape)
             # print ("loss_c:", loss_c.shape)
 
-            loss = loss_l + loss_c  # + loss_land
+            loss = loss_l + loss_c + loss_land[0] + loss_land[1]
             loss_with_land = loss_land
             # print (loss_with_land)
             # if (len(loss_with_land.data) > 0):
@@ -255,17 +259,19 @@ def train():
             if iteration % 10 == 0:
                 print('timer: %.4f sec.' % (t1 - t0))
                 # print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.data[0]))
-                print('iter ' + repr(iteration) + ' || Loss: %.6f ||' % (loss.sum().data)) 
+                print('iter ' + repr(iteration) + ' || Loss: %.6f %.6f %.6f %.6f %.6f ||' % (loss.sum().data, loss_l.sum().data, loss_c.sum().data, loss_land[0].sum().data, loss_land[1].sum().data)) 
+                
 
             if args.visdom:
                 update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
                                 iter_plot, epoch_plot, 'append')
 
-            if iteration != 0 and iteration / 5000 > save_count:
+            if (iteration != 0 and iteration_count % 10000  == 0) or (min_loss > float(loss.sum().data)):
+                min_loss = float(loss.sum().data) 
                 save_count += 1
-                print('Saving state, iter:', iteration)
+                print('Saving state, iter:', iteration_count)
                 torch.save(blaze_net.state_dict(), 'weights/blaze_face_' + with_landmark + 
-                        repr(iteration) + "_loss_" + str(float(loss.sum().data)) + '.pth')
+                        repr(iteration_count) + "_loss_" + str(float(loss.sum().data)) + '.pth')
 
         torch.save(blaze_net.state_dict(),
                 args.save_folder + '' + args.dataset + '.pth')
@@ -279,6 +285,7 @@ def adjust_learning_rate(optimizer, gamma, step):
     # https://github.com/pytorch/examples/blob/master/imagenet/main.py
     """
     lr = args.lr * (gamma ** (step))
+    print ("lr ", lr)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 

@@ -44,7 +44,7 @@ coco = {
 
 celeba = {
     'num_classes': 2,
-    'lr_steps': (80000, 100000, 120000),
+    'lr_steps': (20000, 40000, 60000, 80000),
     'max_iter': 120000,
     'feature_maps': [16],
     'min_dim': 128,

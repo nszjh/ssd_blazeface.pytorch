@@ -6,7 +6,7 @@ from torch.autograd import Variable
 from data.config import celeba as cfg
 from ..box_utils import match, match1, log_sum_exp
 
-UseLandmark = 0
+UseLandmark = 2
 
 class BlazeMultiBoxLoss(nn.Module):
     """SSD Weighted Loss Function
@@ -84,9 +84,15 @@ class BlazeMultiBoxLoss(nn.Module):
         label_test[:, 0, :] = 0
 
 
-        if UseLandmark:
+        if UseLandmark == 1:
             landmark_data = loc_data1[:, :, :10]
             landmark_t = torch.Tensor(num, num_priors, 10)
+        elif UseLandmark == 2:
+            loc_2_data = loc_data1[:, :, 6:10]
+            loc_2_t = torch.Tensor(num, num_priors, 4)
+            conf_2_t = torch.LongTensor(num, num_priors)
+            conf_2_data = loc_data1[:, :, 4:6]
+
 
         # loc_t = torch.Tensor(num_priors, 4)
 
@@ -98,7 +104,15 @@ class BlazeMultiBoxLoss(nn.Module):
 
             # print (labels.shape)
             # print (defaults.shape)
-            if UseLandmark:
+            if UseLandmark == 2:
+                truths_2 = targets[idx][:, 6:10].data
+                match(self.threshold, truths_2, defaults, self.variance, labels,
+                  loc_2_t, conf_2_t, idx)
+                  
+                match(self.threshold, truths, defaults, self.variance, labels,
+                  loc_t, conf_t, idx)
+                
+            elif UseLandmark == 1:
                 landmarks = targets[idx][:, :10].data
                 match1(self.threshold, truths, defaults, self.variance, labels, landmarks, 
                   loc_t, conf_t, landmark_t, idx)
@@ -110,8 +124,11 @@ class BlazeMultiBoxLoss(nn.Module):
         if self.use_gpu:
             loc_t = loc_t.cuda()
             conf_t = conf_t.cuda()
-            if UseLandmark:
+            if UseLandmark == 1:
                 landmark_t = landmark_t.cuda()
+            elif UseLandmark == 2:
+                loc_2_t = loc_t.cuda()
+                conf_2_t = conf_t.cuda()
 
         # wrap targets
         loc_t = Variable(loc_t, requires_grad=False)
@@ -122,8 +139,8 @@ class BlazeMultiBoxLoss(nn.Module):
         num_pos = pos.sum(dim=1, keepdim=True)
 
         # print ("loc_t:", loc_t.shape)
-        print ("conf_t:", conf_t, conf_t.shape)
-        print ("pos:", pos, pos.shape)
+        # print ("conf_t:", conf_t, conf_t.shape)
+        # print ("pos:", pos, pos.shape)
         # print ("landmark_t", landmark_t.shape)
         # Localization Loss (Smooth L1)
         # Shape: [batch,num_priors,4]
@@ -131,8 +148,16 @@ class BlazeMultiBoxLoss(nn.Module):
         # print ("pos_idx: ", pos_idx,  pos_idx.shape)
         # print ("pos: ", pos.shape)
 
+        if UseLandmark == 2:
+            loc_2_t = Variable(loc_2_t, requires_grad=False)
+            conf_2_t = Variable(conf_2_t, requires_grad=False)
+            pos_2 = conf_2_t > 0
+            num_pos_2 = pos_2.sum(dim=1, keepdim=True)
+            pos_idx_2 = pos_2.unsqueeze(pos_2.dim()).expand_as(loc_2_data)
+
+
         ############### add landmark loss ###############
-        if UseLandmark:
+        if UseLandmark == 1:
             pos_land_idx = pos.unsqueeze(pos.dim()).expand_as(landmark_data)
             landmark_p = landmark_data[pos_land_idx].view(-1, 10)
             landmark_t = landmark_t[pos_land_idx].view(-1, 10)
@@ -189,13 +214,67 @@ class BlazeMultiBoxLoss(nn.Module):
         N = num_pos.data.sum()
         loss_l /= N
         loss_c /= N
-        if UseLandmark:
+
+        if UseLandmark == 1:
             loss_land /= N
+
+        elif UseLandmark == 2:
+            loc_2_p = loc_2_data[pos_idx_2].view(-1, 4)
+            loc_2_t = loc_2_t[pos_idx_2].view(-1, 4)
+            # print ("loc_p: ", loc_p.shape)
+            # print ("loc_t: ", loc_t)
+            # loss_l = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+            loss_fn = torch.nn.SmoothL1Loss(reduction='none')
+            loss_2_l = loss_fn(loc_2_p, loc_2_t)
+
+            # print ("loss_l: ", loss_l)
+            # Compute max conf across batch for hard negative mining
+            batch_2_conf = conf_2_data.view(-1, self.num_classes)
+            # batch_conf = conf_data.view(self.num_classes, -1)
+            # batch_conf = conf_data.view(1, -1)
+            loss_2_c = log_sum_exp(batch_2_conf) - batch_2_conf.gather(1, conf_2_t.view(-1, 1))
+            # loss_c = log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(1, -1))
+
+
+
+            # Hard Negative Mining
+            loss_2_c = loss_2_c.view(num, -1)
+            loss_2_c[pos_2] = 0  # filter out pos boxes for now
+
+            _, loss_idx = loss_2_c.sort(1, descending=True)
+
+            # print ("loss:", loss_c, loss_idx)
+            _, idx_rank = loss_idx.sort(1)
+            num_pos = pos_2.long().sum(1, keepdim=True)
+            num_neg = torch.clamp(self.negpos_ratio*num_pos, max=pos_2.size(1)-1)
+            neg = idx_rank < num_neg.expand_as(idx_rank)
+
+            # Confidence Loss Including Positive and Negative Examples
+            pos_idx = pos.unsqueeze(2).expand_as(conf_2_data)
+            neg_idx = neg.unsqueeze(2).expand_as(conf_2_data)
+
+            # print("pos_idx:", pos_idx)
+            # print("neg_idx:", neg_idx)
+            conf_p = conf_2_data[(pos_idx+neg_idx).gt(0)].view(-1, self.num_classes)
+            targets_weighted = conf_2_t[(pos+neg).gt(0)]
+            # print (conf_p, conf_p.shape)
+            # print ("targets_weighted:" , targets_weighted, targets_weighted.shape)
+
+            loss_c_fn = torch.nn.CrossEntropyLoss()
+            loss_2_c = F.cross_entropy(conf_p, targets_weighted)
+
+            # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
+            N = num_pos.data.sum()
+            loss_2_l /= N
+            loss_2_c /= N
         else:
             loss_land = -loss_c
         
         # print ("loss_c: ", loss_c, loss_l)
 
-        return loss_l, loss_c, loss_land
+        if UseLandmark == 2:
+            return loss_l, loss_c, [loss_2_l, loss_2_c]
+        else:    
+            return loss_l, loss_c, loss_land
 
     

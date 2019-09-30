@@ -155,7 +155,7 @@ class BlazeFace(nn.Module):
         super(BlazeFace, self).__init__()
 
         self.firstconv = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(in_channels=2, out_channels=16, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
@@ -224,7 +224,11 @@ class BlazeFace(nn.Module):
         # print ("x1:", x.shape)
 
         x = self.firstconv(x)
+        # print ("x :", x.shape)
+
         x = self.blazeBlock(x)
+        # print ("x :", x.shape)
+
         y1 = self.doubleBlazeBlock(x)
 
         # print ("y1:", y1.shape)
@@ -240,7 +244,7 @@ class BlazeFace(nn.Module):
                 output,                # loc preds
                 # self.softmax(classificators.view(batch, 896, 1)),                # conf preds
                 # classificators.view(batch, 896, 1),
-                self.softmax(output[:, :, 10:12]),
+                self.softmax(output[:, :, 10:12]), self.softmax(output[:, :, 4:6]), 
                 # self.priors.type(type(x.data))                  # default boxes
                 self.priors
             )
@@ -294,10 +298,10 @@ def build_blazeface(phase, size=128, num_classes=2):
 
 
 if __name__=='__main__':
-    model = BlazeFace("train")
+    model = build_blazeface("train")
     print(model)
 
-    input = torch.randn(1, 3, 128, 128)
-    out1, out2, priors = model(input)
+    input = torch.randn(1, 2, 128, 128)
+    out1 = model(input)
     print(out1.shape)
-    print(out2.shape)
+    # print(out2.shape)
